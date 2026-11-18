@@ -520,7 +520,7 @@ function drawTitle(canvas: Image) {
     // The game title as in the intro, drawn once into one image. Its size depends on how long the name is.
     if (!titleLogo) {
         titleLogo = image.create(160, 30)
-        cinematicLetters(titleLogo, cinematicTitle, 2, cinematicTitleScale(136), 100000, -10, true, -1)
+        cinematicLetters(titleLogo, cinematicTitle, 2, cinematicTitleScale(136), 100000, -10240, true, -1)
     }
     canvas.drawTransparentImage(titleLogo, 0, 13)
     // The Calliope Hacker at the desk, in front of a wall of the color hacker.WALL_COLOR.

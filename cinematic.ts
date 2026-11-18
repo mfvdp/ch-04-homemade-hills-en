@@ -1,7 +1,10 @@
 // The intro: a journey of 22 seconds through a small 3D scene. CINEMATIC_DURATION_MS holds this length (22000). It does
-// not change the world, and it uses no video, no timers, no sprites and no new images for each frame. Order: flying
-// between the islands, the portal charges up, flying through the portal (this first station is called the flight), then
-// the card "Calliope Hacker presents" over the target island, then the game title.
+// not change the world, and it uses no video, no timers, no sprites and no new images for each frame. All the math uses
+// whole numbers: places in the world and sine and cosine in 1024ths, points on the screen in 16ths of a pixel. The
+// Calliope stores every decimal number as a small object in its memory. With thousands of them in every frame it had to
+// tidy up all the time, and the intro stuttered. Order: flying between the islands, the portal charges up, flying
+// through the portal (this first station is called the flight), then the card "Calliope Hacker presents" over the
+// target island, then the game title.
 let cinematicDone = false
 let cinematicMs = 0
 let cinematicCue = 0
@@ -39,15 +42,15 @@ let cinematicFaces = [0, 2, 3, 1, 4, 5, 7, 6, 0, 1, 5, 4, 2, 6, 7, 3, 0, 4, 6, 2
 let cinematicFaceOrder = [0, 0, 0]
 let cinematicFaceDepth = [0, 0, 0]
 let cinematicCameraX = 0
-let cinematicCameraY = 3
+let cinematicCameraY = 3072
 let cinematicCameraZ = 0
 let cinematicYawSin = 0
-let cinematicYawCos = 1
+let cinematicYawCos = 1024
 let cinematicPitchSin = 0
-let cinematicPitchCos = 1
+let cinematicPitchCos = 1024
 let cinematicBankSin = 0
-let cinematicBankCos = 1
-let cinematicFocal = 92
+let cinematicBankCos = 1024
+let cinematicFocal = 1472
 let cinematicScreenX = 0
 let cinematicScreenY = 0
 let cinematicScreenDepth = 0
@@ -55,12 +58,12 @@ let cinematicSunset = false
 
 function cinematicAddBox(x: number, y: number, z: number,
     width: number, height: number, depth: number, type: number) {
-    cinematicBoxX.push(x)
-    cinematicBoxY.push(y)
-    cinematicBoxZ.push(z)
-    cinematicBoxWidth.push(width)
-    cinematicBoxHeight.push(height)
-    cinematicBoxDepth.push(depth)
+    cinematicBoxX.push(Math.round(x * 1024))
+    cinematicBoxY.push(Math.round(y * 1024))
+    cinematicBoxZ.push(Math.round(z * 1024))
+    cinematicBoxWidth.push(Math.round(width * 512))
+    cinematicBoxHeight.push(Math.round(height * 512))
+    cinematicBoxDepth.push(Math.round(depth * 512))
     cinematicBoxType.push(type)
     cinematicOrder.push(0)
     cinematicDepths.push(0)
@@ -92,8 +95,8 @@ function initCinematic() {
     cinematicTitle = image.create(GAME_TITLE.length * 6, 8)
     cinematicTitle.print(GAME_TITLE, 0, 0, 1, image.font8)
     for (let i = 0; i <= 24; i++) {
-        cinematicRingX.push(Math.cos(i * Math.PI / 12))
-        cinematicRingY.push(Math.sin(i * Math.PI / 12))
+        cinematicRingX.push(Math.round(Math.cos(i * Math.PI / 12) * 1024))
+        cinematicRingY.push(Math.round(Math.sin(i * Math.PI / 12) * 1024))
     }
     for (let i = 0; i < 8; i++) {
         cinematicCornerX.push(0)
@@ -169,30 +172,30 @@ function cinematicEase(value: number): number {
 }
 
 function cinematicCamera(x: number, y: number, z: number, yaw: number, pitch: number, bank: number) {
-    cinematicCameraX = x
-    cinematicCameraY = y
-    cinematicCameraZ = z
-    cinematicYawSin = Math.sin(yaw)
-    cinematicYawCos = Math.cos(yaw)
-    cinematicPitchSin = Math.sin(pitch)
-    cinematicPitchCos = Math.cos(pitch)
-    cinematicBankSin = Math.sin(bank)
-    cinematicBankCos = Math.cos(bank)
+    cinematicCameraX = Math.round(x * 1024)
+    cinematicCameraY = Math.round(y * 1024)
+    cinematicCameraZ = Math.round(z * 1024)
+    cinematicYawSin = Math.round(Math.sin(yaw) * 1024)
+    cinematicYawCos = Math.round(Math.cos(yaw) * 1024)
+    cinematicPitchSin = Math.round(Math.sin(pitch) * 1024)
+    cinematicPitchCos = Math.round(Math.cos(pitch) * 1024)
+    cinematicBankSin = Math.round(Math.sin(bank) * 1024)
+    cinematicBankCos = Math.round(Math.cos(bank) * 1024)
 }
 
 function cinematicProject(x: number, y: number, z: number) {
     let dx = x - cinematicCameraX
     let dy = y - cinematicCameraY
     let dz = z - cinematicCameraZ
-    let turnedX = dx * cinematicYawCos - dz * cinematicYawSin
-    let turnedZ = dz * cinematicYawCos + dx * cinematicYawSin
-    let turnedY = dy * cinematicPitchCos - turnedZ * cinematicPitchSin
-    cinematicScreenDepth = turnedZ * cinematicPitchCos + dy * cinematicPitchSin
-    let scale = cinematicFocal / Math.max(0.5, cinematicScreenDepth)
-    let flatX = turnedX * scale
-    let flatY = -turnedY * scale
-    cinematicScreenX = 80 + flatX * cinematicBankCos - flatY * cinematicBankSin
-    cinematicScreenY = 57 + flatY * cinematicBankCos + flatX * cinematicBankSin
+    let turnedX = (dx * cinematicYawCos - dz * cinematicYawSin) >> 10
+    let turnedZ = (dz * cinematicYawCos + dx * cinematicYawSin) >> 10
+    let turnedY = (dy * cinematicPitchCos - turnedZ * cinematicPitchSin) >> 10
+    cinematicScreenDepth = (turnedZ * cinematicPitchCos + dy * cinematicPitchSin) >> 10
+    let scale = Math.max(512, cinematicScreenDepth)
+    let flatX = Math.idiv(turnedX * cinematicFocal, scale)
+    let flatY = -Math.idiv(turnedY * cinematicFocal, scale)
+    cinematicScreenX = 1280 + ((flatX * cinematicBankCos - flatY * cinematicBankSin) >> 10)
+    cinematicScreenY = 912 + ((flatY * cinematicBankCos + flatX * cinematicBankSin) >> 10)
 }
 
 // The built-in triangle filler (fillTriangle) works with whole numbers and cuts the shape off at the edge of the
@@ -210,11 +213,11 @@ function cinematicFace(canvas: Image, face: number, ink: number, edgeColor: numb
     let cornerB = cinematicFaces[firstCorner + 1]
     let cornerC = cinematicFaces[firstCorner + 2]
     let cornerD = cinematicFaces[firstCorner + 3]
-    cinematicTriangle(canvas,
+    canvas.fillTriangle(
         cinematicCornerX[cornerA], cinematicCornerY[cornerA],
         cinematicCornerX[cornerB], cinematicCornerY[cornerB],
         cinematicCornerX[cornerC], cinematicCornerY[cornerC], ink)
-    cinematicTriangle(canvas,
+    canvas.fillTriangle(
         cinematicCornerX[cornerA], cinematicCornerY[cornerA],
         cinematicCornerX[cornerC], cinematicCornerY[cornerC],
         cinematicCornerX[cornerD], cinematicCornerY[cornerD], ink)
@@ -241,29 +244,29 @@ function cinematicBox(canvas: Image, box: number) {
     let y = cinematicBoxY[box]
     let z = cinematicBoxZ[box]
     let type = cinematicBoxType[box]
-    let halfWidth = cinematicBoxWidth[box] * 0.5
-    let halfHeight = cinematicBoxHeight[box] * 0.5
-    let halfDepth = cinematicBoxDepth[box] * 0.5
+    let halfWidth = cinematicBoxWidth[box]
+    let halfHeight = cinematicBoxHeight[box]
+    let halfDepth = cinematicBoxDepth[box]
     let minX = 10000
     let maxX = -10000
     let minY = 10000
     let maxY = -10000
     for (let i = 0; i < 8; i++) {
-        let taper = type == 1 && (i & 2) == 0 ? 0.58 : 1
-        cinematicProject(x + ((i & 1) == 0 ? -halfWidth : halfWidth) * taper,
+        let taper = type == 1 && (i & 2) == 0 ? 594 : 1024
+        cinematicProject(x + ((((i & 1) == 0 ? -halfWidth : halfWidth) * taper) >> 10),
             y + ((i & 2) == 0 ? -halfHeight : halfHeight),
-            z + ((i & 4) == 0 ? -halfDepth : halfDepth) * taper)
+            z + ((((i & 4) == 0 ? -halfDepth : halfDepth) * taper) >> 10))
         // The near plane is the closest distance that gets drawn. A box with a corner closer than 1.25 is skipped
         // completely. All big scenery stands to the side of the flight path, so this never leaves a hole, and no
         // turned-inside-out shapes appear.
-        if (cinematicScreenDepth < 1.25) return
-        cinematicCornerX[i] = cinematicScreenX
-        cinematicCornerY[i] = cinematicScreenY
+        if (cinematicScreenDepth < 1280) return
+        cinematicCornerX[i] = (cinematicScreenX + 8) >> 4
+        cinematicCornerY[i] = (cinematicScreenY + 8) >> 4
         cinematicCornerDepth[i] = cinematicScreenDepth
-        minX = Math.min(minX, cinematicScreenX)
-        maxX = Math.max(maxX, cinematicScreenX)
-        minY = Math.min(minY, cinematicScreenY)
-        maxY = Math.max(maxY, cinematicScreenY)
+        minX = Math.min(minX, cinematicCornerX[i])
+        maxX = Math.max(maxX, cinematicCornerX[i])
+        minY = Math.min(minY, cinematicCornerY[i])
+        maxY = Math.max(maxY, cinematicCornerY[i])
     }
     if (maxX < 0 || minX > 159 || maxY < 6 || minY > 111) return
     // Of each box, only the three faces that point toward the camera are drawn.
@@ -319,7 +322,7 @@ function cinematicBox(canvas: Image, box: number) {
         }
         // Depth stays easy to see: islands and trees more than 48 units away (box types below 4: island grass, rock,
         // trunk and leaves) switch completely to the colors of the haze.
-        if (z - cinematicCameraZ > 48 && type < 4) {
+        if (z - cinematicCameraZ > 49152 && type < 4) {
             ink = top ? (type == 0 || type == 3 ? 6 : 11) : 12
             edgeColor = ink
         }
@@ -330,10 +333,10 @@ function cinematicBox(canvas: Image, box: number) {
 function cinematicScene(canvas: Image) {
     let count = 0
     for (let i = 0; i < cinematicBoxX.length; i++) {
-        let forward = (cinematicBoxZ[i] - cinematicCameraZ) * cinematicYawCos +
-            (cinematicBoxX[i] - cinematicCameraX) * cinematicYawSin
-        let depth = forward * cinematicPitchCos + (cinematicBoxY[i] - cinematicCameraY) * cinematicPitchSin
-        if (depth < 1 || depth > 84) continue
+        let forward = ((cinematicBoxZ[i] - cinematicCameraZ) * cinematicYawCos +
+            (cinematicBoxX[i] - cinematicCameraX) * cinematicYawSin) >> 10
+        let depth = (forward * cinematicPitchCos + (cinematicBoxY[i] - cinematicCameraY) * cinematicPitchSin) >> 10
+        if (depth < 1024 || depth > 86016) continue
         // Sorting happens in arrays that already exist (the farthest box comes first), so no new objects are made
         // for each frame.
         let j = count - 1
@@ -349,14 +352,17 @@ function cinematicScene(canvas: Image) {
     for (let i = 0; i < count; i++) cinematicBox(canvas, cinematicOrder[i])
 }
 
+// The center and the radii arrive in 16ths of a pixel. They are rounded to whole pixels only when drawing: + 8, then
+// >> 4 (divided by 16).
 function cinematicEllipse(canvas: Image, x: number, y: number, radiusX: number, radiusY: number, ink: number) {
     if (radiusX <= 0 || radiusY <= 0) return
     let previousX = x + radiusX
     let previousY = y
     for (let i = 1; i <= 24; i++) {
-        let pointX = x + cinematicRingX[i] * radiusX
-        let pointY = y + cinematicRingY[i] * radiusY
-        cinematicTriangle(canvas, x, y, previousX, previousY, pointX, pointY, ink)
+        let pointX = x + ((cinematicRingX[i] * radiusX) >> 10)
+        let pointY = y + ((cinematicRingY[i] * radiusY) >> 10)
+        canvas.fillTriangle((x + 8) >> 4, (y + 8) >> 4, (previousX + 8) >> 4, (previousY + 8) >> 4,
+            (pointX + 8) >> 4, (pointY + 8) >> 4, ink)
         previousX = pointX
         previousY = pointY
     }
@@ -364,7 +370,7 @@ function cinematicEllipse(canvas: Image, x: number, y: number, radiusX: number, 
 
 function cinematicSky(canvas: Image, sunset: boolean, passageStrength: number) {
     canvas.fill(15)
-    let horizon = Math.max(33, Math.min(85, 57 + cinematicPitchSin * 92))
+    let horizon = Math.max(33, Math.min(85, 57 + ((cinematicPitchSin * 92) >> 10)))
     canvas.fillRect(0, horizon - 15, 160, 127 - horizon, 8)
     canvas.fillRect(0, horizon + 9, 160, 111 - horizon, 12)
     canvas.fillRect(0, horizon + 35, 160, 112 - (horizon + 35), 15)
@@ -372,69 +378,80 @@ function cinematicSky(canvas: Image, sunset: boolean, passageStrength: number) {
         canvas.fillRect(0, horizon - 6, 160, 29, 12)
         canvas.fillRect(0, horizon + 14, 160, 21, 11)
         // A big sun straight ahead, against the light, made of circles and stripes of light in steps.
-        let sunX = 127 - cinematicCameraX * 2
-        cinematicEllipse(canvas, sunX, 52, 22, 22, 4)
-        cinematicEllipse(canvas, sunX, 50, 17, 17, 5)
-        canvas.fillRect(99 - cinematicCameraX * 2, 59, 57, 2, 12)
-        canvas.fillRect(103 - cinematicCameraX * 2, 64, 49, 2, 12)
-        cinematicTriangle(canvas, sunX - 6, 62, 5, 111, 27, 111, 8)
-        cinematicTriangle(canvas, sunX - 2, 62, 47, 111, 57, 111, 12)
-        cinematicTriangle(canvas, sunX + 6, 62, 137, 111, 159, 111, 8)
+        let sunX = 2032 - (cinematicCameraX >> 5)
+        cinematicEllipse(canvas, sunX, 832, 352, 352, 4)
+        cinematicEllipse(canvas, sunX, 800, 272, 272, 5)
+        sunX = (sunX + 8) >> 4
+        canvas.fillRect(sunX - 28, 59, 57, 2, 12)
+        canvas.fillRect(sunX - 24, 64, 49, 2, 12)
+        canvas.fillTriangle(sunX - 6, 62, 5, 111, 27, 111, 8)
+        canvas.fillTriangle(sunX - 2, 62, 47, 111, 57, 111, 12)
+        canvas.fillTriangle(sunX + 6, 62, 137, 111, 159, 111, 8)
     } else {
         // Thin bands of sky move sideways when the camera turns.
         for (let i = 0; i < 5; i++) {
-            let x = 14 + i * 29 - cinematicYawSin * 70
+            let x = 14 + i * 29 - ((cinematicYawSin * 70) >> 10)
             canvas.drawLine(x, 24 + i * 3, x + 29, 20 + i * 3, 8)
         }
     }
+    // The stars use 16ths of a pixel. drift (how far the stars have moved) and streak (length of the light streaks
+    // while flying through the portal) are worked out only once per frame.
+    let drift = Math.round((cinematicMs * (0.006 + passageStrength * 0.12)) % 128 * 16)
+    let streak = Math.round(passageStrength * 307)
     for (let i = 0; i < 28; i++) {
-        let depth = 30 + ((i * 37 + 128 - ((cinematicMs * (0.006 + passageStrength * 0.12)) % 128)) % 128)
-        let x = 80 + ((i * 97 + 19) % 159 - 79) * 91 / depth - cinematicYawSin * 60
-        let y = 45 + ((i * 61 + 7) % 89 - 49) * 75 / depth
-        if (x < 0 || x > 159 || y < 8 || y > (sunset ? 30 : 100)) continue
-        if (passageStrength > 0) canvas.drawLine(x, y,
-            x - (x - 80) * passageStrength * 0.3,
-            y - (y - 55) * passageStrength * 0.3, 8)
-        canvas.setPixel(x, y, i % 5 == 0 ? 5 : depth < 62 ? 1 : 9)
+        let depth = 480 + ((i * 592 + 2048 - drift) % 2048)
+        let x = 1280 + Math.idiv(((i * 97 + 19) % 159 - 79) * 23296, depth) - ((cinematicYawSin * 960) >> 10)
+        let y = 720 + Math.idiv(((i * 61 + 7) % 89 - 49) * 19200, depth)
+        if (x < 0 || x > 2544 || y < 128 || y > (sunset ? 480 : 1600)) continue
+        if (streak > 0) canvas.drawLine(x >> 4, y >> 4,
+            (x - (((x - 1280) * streak) >> 10)) >> 4,
+            (y - (((y - 880) * streak) >> 10)) >> 4, 8)
+        canvas.setPixel(x >> 4, y >> 4, i % 5 == 0 ? 5 : depth < 992 ? 1 : 9)
     }
     // Flat clouds move with the 3D flight, instead of a fixed background picture.
     for (let i = 0; i < 4; i++) {
-        let z = 18 + ((i * 25 + 150 - cinematicCameraZ) % 100)
-        let x = 80 + ((i % 2 == 0 ? -13 : 12) - cinematicCameraX) * 92 / z
-        let y = 49 + (3 + i % 2) * 92 / z
-        let width = Math.min(55, 700 / z)
-        canvas.fillRect(x - width / 2, y, width, Math.max(1, 35 / z), sunset ? 13 : 11)
+        let z = 18432 + ((i * 25600 + 153600 - cinematicCameraZ) % 102400)
+        let x = 1280 + Math.idiv(((i % 2 == 0 ? -13312 : 12288) - cinematicCameraX) * 1472, z)
+        let y = 784 + Math.idiv((3 + i % 2) * 1507328, z)
+        let width = Math.min(880, Math.idiv(11468800, z))
+        canvas.fillRect((x - (width >> 1)) >> 4, y >> 4, width >> 4, 1, sunset ? 13 : 11)
     }
 }
 
 function cinematicPortal(canvas: Image, charge: number) {
-    if (cinematicCameraZ > 50) return
-    cinematicProject(0, 1.15, 52.5)
-    if (cinematicScreenDepth < 2) return
+    if (cinematicCameraZ > 51200) return
+    cinematicProject(0, 1178, 53760)
+    if (cinematicScreenDepth < 2048) return
+    // Centre and radii of the portal first in 16ths of a pixel; turning and size of the rings in 1024ths.
     let centerX = cinematicScreenX
     let centerY = cinematicScreenY
-    let scale = cinematicFocal / cinematicScreenDepth
-    let radiusX = 3.25 * scale
-    let radiusY = 3.8 * scale
-    cinematicEllipse(canvas, centerX, centerY, radiusX + 2, radiusY + 2, charge > 0.55 ? 9 : 8)
+    let scale = cinematicFocal * 64 / cinematicScreenDepth
+    let radiusX = Math.idiv(3328 * cinematicFocal, cinematicScreenDepth)
+    let radiusY = Math.idiv(3891 * cinematicFocal, cinematicScreenDepth)
+    cinematicEllipse(canvas, centerX, centerY, radiusX + 32, radiusY + 32, charge > 0.55 ? 9 : 8)
     cinematicEllipse(canvas, centerX, centerY, radiusX, radiusY, 15)
     let phase = cinematicMs * 0.0017
-    let cosine = Math.cos(phase)
-    let sine = Math.sin(phase)
+    let cosine = Math.round(Math.cos(phase) * 1024)
+    let sine = Math.round(Math.sin(phase) * 1024)
     for (let ring = 0; ring < 3; ring++) {
-        let radius = ((cinematicMs * 0.00016 + ring / 3) % 1)
-        let previousX = centerX + cosine * radiusX * radius
-        let previousY = centerY + sine * radiusY * radius
+        let radius = (Math.idiv(cinematicMs * 16384, 100000) + Math.idiv(ring * 1024, 3)) & 1023
+        let previousX = centerX + ((((cosine * radiusX) >> 10) * radius) >> 10)
+        let previousY = centerY + ((((sine * radiusY) >> 10) * radius) >> 10)
         for (let i = 1; i <= 24; i++) {
-            let turnedX = cinematicRingX[i] * cosine - cinematicRingY[i] * sine
-            let turnedY = cinematicRingY[i] * cosine + cinematicRingX[i] * sine
-            let x = centerX + turnedX * radiusX * radius
-            let y = centerY + turnedY * radiusY * radius
-            canvas.drawLine(previousX, previousY, x, y, ring == 1 && charge > 0.5 ? 9 : 8)
+            let turnedX = (cinematicRingX[i] * cosine - cinematicRingY[i] * sine) >> 10
+            let turnedY = (cinematicRingY[i] * cosine + cinematicRingX[i] * sine) >> 10
+            let x = centerX + ((((turnedX * radiusX) >> 10) * radius) >> 10)
+            let y = centerY + ((((turnedY * radiusY) >> 10) * radius) >> 10)
+            canvas.drawLine(previousX >> 4, previousY >> 4, x >> 4, y >> 4, ring == 1 && charge > 0.5 ? 9 : 8)
             previousX = x
             previousY = y
         }
     }
+    // Only a few calculations per frame follow from here, so whole pixels again.
+    centerX = centerX / 16
+    centerY = centerY / 16
+    radiusX = radiusX / 16
+    radiusY = radiusY / 16
     if (charge > 0.02) {
         let beam = Math.max(1, charge * 4)
         canvas.fillRect(centerX - beam - 2, 6, beam * 2 + 5, centerY + radiusY - 6, 8)
@@ -472,27 +489,31 @@ function cinematicPortal(canvas: Image, charge: number) {
 // of color are painted on top of each other (outline, shadow, face) instead of random wiggling letters.
 function cinematicLetters(canvas: Image, mask: Image, y: number, scale: number, revealMs: number,
     shine: number, gold: boolean, direction: number) {
-    let originX = 80 - mask.width * scale / 2
-    let verticalScale = mask == cinematicTitle ? scale * 1.22 : scale
+    // Whole numbers instead of decimals: size and height in 1024ths. shine already arrives in 1024ths.
+    scale = Math.round(scale * 1024)
+    y = Math.round(y * 1024)
+    let originX = 81920 - ((mask.width * scale) >> 1)
+    let verticalScale = mask == cinematicTitle ? Math.idiv(scale * 122, 100) : scale
     let letters = Math.idiv(mask.width + 5, 6)
     // The shadow and the outline grow with the size of the letters. A fixed offset would fill the gaps inside the
     // letters when the text is small.
-    let shadow = Math.min(3, Math.round(scale))
-    let outline = Math.min(5, Math.round(scale * 1.75))
+    let shadow = Math.min(3, (scale + 512) >> 10)
+    let outline = Math.min(5, (((scale * 7) >> 2) + 512) >> 10)
+    let width = Math.max(1, (scale + 1023) >> 10)
+    let height = Math.max(1, (verticalScale + 1023) >> 10)
     for (let layer = 0; layer < 3; layer++) {
         for (let letter = 0; letter < letters; letter++) {
-            let progress = cinematicEase((revealMs - letter * 85) / 650)
+            let progress = Math.max(0, Math.min(1024, Math.idiv((revealMs - letter * 85) * 1024, 650)))
+            progress = (((progress * progress) >> 10) * (3072 - 2 * progress)) >> 10
             if (progress <= 0) continue
-            let remaining = 1 - progress
-            let shiftX = (letter - (letters - 1) / 2) * remaining * 16
-            let shiftY = remaining * remaining * 29 * direction
+            let remaining = 1024 - progress
+            let shiftX = (2 * letter - letters + 1) * remaining * 8
+            let shiftY = ((remaining * remaining) >> 10) * 29 * direction
             for (let maskX = letter * 6; maskX < Math.min(mask.width, letter * 6 + 6); maskX++) {
                 for (let maskY = 0; maskY < mask.height; maskY++) {
                     if (!mask.getPixel(maskX, maskY)) continue
-                    let screenX = Math.round(originX + maskX * scale + shiftX)
-                    let screenY = Math.round(y + maskY * verticalScale + shiftY)
-                    let width = Math.max(1, Math.ceil(scale))
-                    let height = Math.max(1, Math.ceil(verticalScale))
+                    let screenX = (originX + maskX * scale + shiftX + 512) >> 10
+                    let screenY = (y + maskY * verticalScale + shiftY + 512) >> 10
                     if (layer == 0) {
                         canvas.fillRect(screenX - 1, screenY - 1, width + 2, height + 2, 15)
                         canvas.fillRect(screenX + 2, screenY + outline, width + 1, height + 1, 15)
@@ -501,7 +522,7 @@ function cinematicLetters(canvas: Image, mask: Image, y: number, scale: number, 
                         width, height + 1, gold ? 4 : 8)
                     else {
                         let ink = maskY < Math.idiv(mask.height, 2) ? 1 : gold ? 5 : 9
-                        if (Math.abs(maskX - shine) < 2) ink = 1
+                        if (Math.abs(maskX * 1024 - shine) < 2048) ink = 1
                         canvas.fillRect(screenX, screenY, width, height, ink)
                     }
                 }
@@ -510,16 +531,19 @@ function cinematicLetters(canvas: Image, mask: Image, y: number, scale: number, 
     }
 }
 
+// The radii are in 16ths of a pixel; amount becomes the length of the tail here.
 function cinematicSpeedLines(canvas: Image, amount: number) {
+    amount = Math.round((5 + amount * 22) * 16)
     for (let i = 0; i < 12; i++) {
         let index = i * 2
-        let progress = ((cinematicMs * 0.0015 + i * 0.31) % 1)
-        let radius = 20 + progress * 92
-        let x = 80 + cinematicRingX[index] * radius
-        let y = 55 + cinematicRingY[index] * radius * 0.7
-        let tail = radius - (5 + amount * 22)
-        canvas.drawLine(x, y,
-            80 + cinematicRingX[index] * tail, 55 + cinematicRingY[index] * tail * 0.7,
+        let progress = (Math.idiv(cinematicMs * 1536, 1000) + Math.idiv(i * 31744, 100)) & 1023
+        let radius = 320 + ((progress * 1472) >> 10)
+        let x = 1280 + ((cinematicRingX[index] * radius) >> 10)
+        let y = 880 + Math.idiv(cinematicRingY[index] * radius * 7, 10240)
+        let tail = radius - amount
+        canvas.drawLine(x >> 4, y >> 4,
+            (1280 + ((cinematicRingX[index] * tail) >> 10)) >> 4,
+            (880 + Math.idiv(cinematicRingY[index] * tail * 7, 10240)) >> 4,
             i % 3 == 0 ? 9 : 8)
     }
 }
@@ -533,7 +557,7 @@ function cinematicCaption(canvas: Image, text: string, y: number, ink: number) {
 
 function drawCinematic(canvas: Image) {
     let timeMs = cinematicMs
-    cinematicFocal = 92
+    cinematicFocal = 1472
     cinematicSunset = timeMs >= CINEMATIC_SUNSET_START_MS
     if (timeMs < CINEMATIC_CHARGE_START_MS) {
         let progress = timeMs / CINEMATIC_CHARGE_START_MS
@@ -552,7 +576,7 @@ function drawCinematic(canvas: Image) {
         let progress = (timeMs - CINEMATIC_PASSAGE_START_MS) / 4000
         // The camera speeds up through the portal, then slows down again in front of the target island.
         let travel = cinematicEase(progress)
-        cinematicFocal = 92 - Math.sin(progress * Math.PI) * 16
+        cinematicFocal = Math.round((92 - Math.sin(progress * Math.PI) * 16) * 16)
         cinematicCamera(
             Math.sin(progress * Math.PI * 2) * 0.8,
             2.4 + travel * 4,
@@ -587,12 +611,13 @@ function drawCinematic(canvas: Image) {
     if (timeMs >= CINEMATIC_CHARGE_START_MS && timeMs < CINEMATIC_PASSAGE_START_MS) {
         let energy = cinematicEase((timeMs - CINEMATIC_CHARGE_START_MS) / 2400)
         // The energy pulls visible sparks toward the portal before it opens.
+        energy = 2 + energy * 2
         for (let i = 0; i < 8; i++) {
             let index = i * 3
-            let radius = 18 + ((i * 13 + 97 - ((timeMs - CINEMATIC_CHARGE_START_MS) / 17) % 97) % 97)
-            let x = 80 + cinematicRingX[index] * radius
-            let y = 60 + cinematicRingY[index] * radius * 0.68
-            canvas.fillRect(x, y, 2 + energy * 2, 2 + energy * 2, i % 3 == 0 ? 5 : 9)
+            let radius = 288 + ((i * 208 + 1552 - Math.idiv((timeMs - CINEMATIC_CHARGE_START_MS) * 16, 17) % 1552) % 1552)
+            let x = 1280 + ((cinematicRingX[index] * radius) >> 10)
+            let y = 960 + Math.idiv(cinematicRingY[index] * radius * 17, 25600)
+            canvas.fillRect(x >> 4, y >> 4, energy, energy, i % 3 == 0 ? 5 : 9)
         }
     }
     if (passageStrength > 0.1) cinematicSpeedLines(canvas, passageStrength)
@@ -600,9 +625,9 @@ function drawCinematic(canvas: Image) {
         let elapsedMs = timeMs - CINEMATIC_CARD_START_MS
         // Two huge words (CALLIOPE and HACKER) instead of a small label over the picture.
         cinematicLetters(canvas, cinematicCalliope, 19, 2.85,
-            elapsedMs + 180, (elapsedMs - 1400) / 50, true, -1)
+            elapsedMs + 180, Math.idiv((elapsedMs - 1400) * 1024, 50), true, -1)
         cinematicLetters(canvas, cinematicHacker, 55, 3.45,
-            elapsedMs - 180, (elapsedMs - 1700) / 48, false, 1)
+            elapsedMs - 180, Math.idiv((elapsedMs - 1700) * 1024, 48), false, 1)
         if (elapsedMs > 1200) {
             let reveal = cinematicEase((elapsedMs - 1200) / 550)
             let y = 98 + Math.round((1 - reveal) * 6)
@@ -624,7 +649,7 @@ function drawCinematic(canvas: Image) {
         let settle = 1 - cinematicEase(elapsedMs / 1000)
         // A calm, big title reveal. The camera flight goes on underneath.
         cinematicLetters(canvas, cinematicTitle, 15 - settle * 7,
-            cinematicTitleScale(148) + settle * 0.12, elapsedMs + 120, (elapsedMs - 1800) / 33, true, -1)
+            cinematicTitleScale(148) + settle * 0.12, elapsedMs + 120, Math.idiv((elapsedMs - 1800) * 1024, 33), true, -1)
         if (elapsedMs > 1600) cinematicCaption(canvas, "BUILD YOUR OWN WORLD", 51, 13)
         // Leaves and sparks in the front drift across the screen during the camera flight.
         for (let i = 0; i < 8; i++) {
