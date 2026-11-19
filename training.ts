@@ -1,4 +1,4 @@
-// The training: seven short tasks on a separate place to practice.
+// The training: eight short tasks on a separate place to practice.
 // startTraining keeps a copy of the real game (trainingSnapshot) and finishTraining puts it back at the end.
 let trainingActive = false
 let trainingStep = 0
@@ -8,6 +8,9 @@ let trainingSnapshot: Buffer = null
 let trainingStartZ = 0
 let trainingReady = false
 let unsavedBeforeTraining = false
+// Step 8 practises jumping and building up in a hole; step 9 is the final card.
+const TUTORIAL_JUMP = 8
+const TUTORIAL_END = 9
 let trainingHeadings = [
     "YOUR ADVENTURE BEGINS",
     "01  MOVE",
@@ -17,6 +20,7 @@ let trainingHeadings = [
     "05  YOUR FIRST BLOCK",
     "06  CHANGE MATERIAL",
     "07  THE WORKBENCH",
+    "08  OUT OF THE HOLE",
     "READY FOR YOUR WORLD"
 ]
 let trainingLine1 = [
@@ -28,10 +32,11 @@ let trainingLine1 = [
     "Tap B briefly.",
     "Hold B + RIGHT.",
     "Open MENU.",
+    "Tap A: you jump.",
     "Explore. Gather. Build."
 ]
 let trainingLine2 = [
-    "Seven little tasks.",
+    "Eight little tasks.",
     "Walk to the test block.",
     "This turns your view.",
     "Move your view.",
@@ -39,6 +44,7 @@ let trainingLine2 = [
     "Build before the stone.",
     "Choose a material.",
     "Craft a pickaxe.",
+    "Then B: block under you.",
     "A: start the adventure!"
 ]
 
@@ -111,7 +117,21 @@ function nextTrainingStep() {
         posY = 4 * UNIT
         fallSpeed = 0
     }
-    if (trainingStep == 8) {
+    if (trainingStep == TUTORIAL_JUMP) {
+        // A hole two blocks deep: walking out does not work, building up does.
+        menuOpen = false
+        writeBlock(10, 1, 5, Block.Stone)
+        writeBlock(10, 2, 5, Block.Air)
+        writeBlock(10, 3, 5, Block.Air)
+        posX = 10 * UNIT + 128
+        posZ = 5 * UNIT + 128
+        posY = 2 * UNIT
+        fallSpeed = 0
+        jumping = false
+        yaw = 0
+        pitch = -0.16
+    }
+    if (trainingStep == TUTORIAL_END) {
         trainingReady = true
         menuOpen = false
     }
@@ -136,10 +156,13 @@ function tickTraining(dt: number, turn: number, looking: number) {
     } else if (trainingStep == 3) {
         trainingProgress += Math.abs(looking) * dt / 260
         if (trainingProgress >= 1) nextTrainingStep()
+    } else if (trainingStep == TUTORIAL_JUMP && posY >= 4 * UNIT && bodyBlocked(posX, posY - 1, posZ)) {
+        // Done as soon as the player stands on the meadow again.
+        nextTrainingStep()
     }
 }
 function drawTraining(canvas: Image) {
-    if (trainingStep == 0 || trainingStep == 8) {
+    if (trainingStep == 0 || trainingStep == TUTORIAL_END) {
         canvas.fillRect(4, 30, 152, 61, 15)
         canvas.drawRect(4, 30, 152, 61, 6)
         let title = trainingHeadings[trainingStep]
@@ -160,13 +183,13 @@ function drawTraining(canvas: Image) {
         canvas.print(trainingHeadings[trainingStep], 4, 84, 5, image.font8)
         canvas.print(trainingLine1[trainingStep], 4, 94, 1, image.font8)
         canvas.print(trainingLine2[trainingStep], 4, 103, 13, image.font8)
-        for (let i = 0; i < 7; i++) {
+        for (let i = 0; i < 8; i++) {
             canvas.fillRect(114 + i * 6, 73, 4, 3,
                 i < trainingStep - 1 ? 7 : i == trainingStep - 1 ? 5 : 12)
         }
     }
     canvas.fillRect(0, 0, 160, 8, 15)
-    canvas.print("TRAINING " + Math.min(7, trainingStep) + "/7", 2, 1, 9, image.font8)
+    canvas.print("TRAINING " + Math.min(8, trainingStep) + "/8", 2, 1, 9, image.font8)
     canvas.print(trainingStep == 7 ? "MENU" : "MENU: EXIT",
         trainingStep == 7 ? 134 : 88, 1, 13, image.font8)
 }

@@ -8,6 +8,11 @@ const BODY = 410
 const EYE = 350
 const BLOCK_COUNT = SIZE * SIZE * HEIGHT
 const SAVE_SIZE = 64 + BLOCK_COUNT / 2 + 2
+// Starting speed of a jump, in 1/256 block per second. The player flies about 1.27 blocks high: just enough to jump
+// onto a block and to place a block underneath while in the air.
+const JUMP_SPEED = 1140
+// If the space around the player has fewer squares than this, it counts as a hole.
+const HOLE_LIMIT = 20
 enum Block { Air, Grass, Dirt, Stone, Wood, Leaves, Planks, Crystal, BaseRock }
 let blocks = control.createBuffer(BLOCK_COUNT)
 let bag = [0, 0, 24, 16, 8, 0, 12, 0, 0]
@@ -22,6 +27,18 @@ let yaw = 0
 let pitch = -0.16
 let fallSpeed = 0
 let onGround = true
+// Whether the player is in the air because of a jump, and the height of the feet (in blocks) at take-off.
+let jumping = false
+let jumpFloor = 0
+// What was left over from the last vertical move because it was less than 1/256 block (in 2000ths of it). This way
+// nothing gets lost when calculating with whole numbers.
+let fallRest = 0
+// Notes for the hole search: which squares were already visited, and a queue of the squares still to check. They are
+// created once, not in every frame.
+let holeSeen = control.createBuffer(SIZE * SIZE)
+let holeX = control.createBuffer(HOLE_LIMIT)
+let holeZ = control.createBuffer(HOLE_LIMIT)
+let holeFeet = control.createBuffer(HOLE_LIMIT)
 let unsavedChanges = false
 let rayWidth = 4
 let hasPickaxe = false
@@ -119,6 +136,7 @@ function returnToStart() {
     writeBlock(12, 5, 4, Block.Air)
     fallSpeed = 0
     onGround = true
+    jumping = false
 }
 function moveAxis(dx: number, dz: number) {
     if (!bodyBlocked(posX + dx, posY, posZ + dz)) {
@@ -138,12 +156,19 @@ function moveAxis(dx: number, dz: number) {
 function movePlayer(forward: number, dt: number) {
     dt = Math.max(0, Math.min(80, dt))
     if (dt == 0) return
-    onGround = bodyBlocked(posX, posY - 2, posZ)
+    // A player flying upwards is not standing on the ground. This way the player does not also climb a
+    // step at take-off.
+    onGround = fallSpeed <= 0 && bodyBlocked(posX, posY - 2, posZ)
     let distance = Math.idiv(forward * dt * 7, 10)
     moveAxis(Math.round(Math.sin(yaw) * distance), 0)
     moveAxis(0, Math.round(Math.cos(yaw) * distance))
+    // Distance by the clock: the average speed before and after the time step, times the time. So a jump is equally
+    // high whether a frame takes 16 or 80 milliseconds.
+    let speedBefore = fallSpeed
     fallSpeed = Math.max(-1100, fallSpeed - dt * 2)
-    let movement = Math.idiv(fallSpeed * dt, 1000)
+    let travel = (speedBefore + fallSpeed) * dt + fallRest
+    let movement = Math.idiv(travel, 2000)
+    fallRest = travel - movement * 2000
     let steps = Math.max(1, Math.ceil(Math.abs(movement) / 24))
     for (let i = 0; i < steps; i++) {
         let dy = Math.idiv(movement * (i + 1), steps) - Math.idiv(movement * i, steps)
@@ -156,10 +181,87 @@ function movePlayer(forward: number, dt: number) {
                 posY += direction
             }
             fallSpeed = 0
+            fallRest = 0
             break
         }
     }
     onGround = bodyBlocked(posX, posY - 1, posZ)
+    if (onGround && fallSpeed <= 0) jumping = false
+}
+// Jumping only works from the ground, not in the air.
+function jump(): boolean {
+    if (!bodyBlocked(posX, posY - 1, posZ)) return false
+    fallSpeed = JUMP_SPEED
+    fallRest = 0
+    onGround = false
+    jumping = true
+    jumpFloor = posY >> 8
+    return true
+}
+// While jumping, place a block under the feet (build up). If the selected material is used up, the player takes the
+// next material there is still some of.
+function buildUnderFeet(): boolean {
+    if (!jumping || posY < (jumpFloor + 1) * UNIT) return false
+    if (bag[materials[selected]] == 0) {
+        for (let i = 1; i < materials.length; i++) {
+            let next = (selected + i) % materials.length
+            if (bag[materials[next]] > 0) {
+                selected = next
+                break
+            }
+        }
+    }
+    return placeBlock(posX >> 8, jumpFloor, posZ >> 8)
+}
+// Does the player still have any material at all?
+function hasMaterial(): boolean {
+    for (let i = 0; i < materials.length; i++) {
+        if (bag[materials[i]] > 0) return true
+    }
+    return false
+}
+// Where does the player get from their square to the next square, only by walking and jumping? The answer is the new
+// height of the feet, or -1 if it is not possible.
+function reachFeet(x: number, z: number, feet: number, nx: number, nz: number): number {
+    if (nx < 0 || nz < 0 || nx >= SIZE || nz >= SIZE) return -1
+    if (blockAt(nx, feet, nz) == Block.Air && blockAt(nx, feet + 1, nz) == Block.Air) {
+        let y = feet
+        while (y > 1 && blockAt(nx, y - 1, nz) == Block.Air) y--
+        return y
+    }
+    if (blockAt(nx, feet + 1, nz) == Block.Air && blockAt(nx, feet + 2, nz) == Block.Air &&
+        blockAt(x, feet + 2, z) == Block.Air) return feet + 1
+    return -1
+}
+// Counts the squares the player can reach by walking and jumping, but only up to the hole limit. Fewer squares means:
+// the player is in a hole and can only get out by building up or digging.
+function roomAround(): number {
+    holeSeen.fill(0)
+    holeX[0] = posX >> 8
+    holeZ[0] = posZ >> 8
+    holeFeet[0] = posY >> 8
+    holeSeen[holeX[0] + SIZE * holeZ[0]] = 1
+    let count = 1
+    let next = 0
+    while (next < count) {
+        let x = holeX[next]
+        let z = holeZ[next]
+        let feet = holeFeet[next]
+        next++
+        for (let side = 0; side < 4; side++) {
+            let nx = x + (side == 0 ? 1 : side == 1 ? -1 : 0)
+            let nz = z + (side == 2 ? 1 : side == 3 ? -1 : 0)
+            let reached = reachFeet(x, z, feet, nx, nz)
+            if (reached < 0 || holeSeen[nx + SIZE * nz] == 1) continue
+            if (count >= HOLE_LIMIT) return HOLE_LIMIT
+            holeSeen[nx + SIZE * nz] = 1
+            holeX[count] = nx
+            holeZ[count] = nz
+            holeFeet[count] = reached
+            count++
+        }
+    }
+    return count
 }
 function mineBlock(x: number, y: number, z: number): boolean {
     let blockType = blockAt(x, y, z)
@@ -259,6 +361,7 @@ function decodeSave(data: Buffer): boolean {
         bag[i] = data.getNumber(NumberFormat.UInt16LE, 18 + i * 2)
     }
     fallSpeed = 0
+    jumping = false
     unsavedChanges = false
     if (bodyBlocked(posX, posY, posZ)) returnToStart()
     else onGround = bodyBlocked(posX, posY - 1, posZ)

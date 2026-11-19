@@ -10,6 +10,17 @@ const SCREEN_QUIET_MS = 500
 // Picture on the wall of the workbench: the top left corner of the picture (a frame of 1 pixel is drawn around it).
 const WALL_X = 129
 const WALL_Y = 11
+// Pressing A for less than this is a jump. The fastest mining takes 220 milliseconds, so a short tap never mines
+// anything. The time counts in game time (at most 80 milliseconds per frame), just like mining: on the device, button
+// presses only arrive between two frames, and with slow frames the real time in between would be too long.
+const JUMP_TAP_MS = 250
+// A tap shortly before landing still counts, even when a frame takes long on the device.
+const JUMP_EARLY_MS = 250
+// If the player sits in a hole this long, a hint at the top explains how to get out. It stays for a while and comes
+// back after a break.
+const HINT_AFTER_MS = 4000
+const HINT_SHOW_MS = 5000
+const HINT_REPEAT_MS = 20000
 let titleOpen = true
 let titleSinceMs = 0
 let menuQuietUntilMs = 0
@@ -49,6 +60,18 @@ let cachedPitch = -2
 let cachedRayWidth = 0
 let worldFrame = image.create(160, 120)
 let titleLogo: Image = null
+let aHeldMs = 0
+// Did the thumb press B before letting go of A? That still counts as "A, then B".
+let bRolled = false
+let jumpArmed = false
+let minedThisPress = false
+let buildPending = false
+// When the player wanted to jump in the air: if they land soon after, they jump then.
+let jumpWishMs = -1000
+let stuckSinceMs = -1
+let nextStuckCheckMs = 0
+let hintUntilMs = 0
+let nextHintMs = 0
 
 function invalidateScene() {
     sceneRevision++
@@ -76,6 +99,8 @@ function startGame() {
     inputLocked = true
     bHandled = true
     mineMs = 0
+    stuckSinceMs = -1
+    hintUntilMs = 0
     updateTarget()
     invalidateScene()
     notifyPlayer(hasPickaxe ? "Pickaxe ready. Let's go!" : "MENU: craft your pick")
@@ -215,10 +240,22 @@ controller.A.onEvent(ControllerButtonEvent.Pressed, function () {
         menuOpen = false
         newWorldConfirm = false
         inputLocked = true
+    } else {
+        // In the game: a short press of A is a jump (on release), a long one mines.
+        aHeldMs = 0
+        minedThisPress = false
+        jumpArmed = !inputLocked && !controller.B.isPressed() &&
+            (!trainingActive || (trainingStep >= 1 && trainingStep <= TUTORIAL_JUMP))
     }
+})
+controller.A.onEvent(ControllerButtonEvent.Released, function () {
+    if (jumpArmed && !minedThisPress && aHeldMs < JUMP_TAP_MS && cinematicDone &&
+        !titleOpen && !menuOpen && (!controller.B.isPressed() || bRolled) && !jump()) jumpWishMs = game.runtime()
+    jumpArmed = false
 })
 controller.B.onEvent(ControllerButtonEvent.Pressed, function () {
     bHandled = !cinematicDone || titleOpen || menuOpen || inputLocked
+    bRolled = !bHandled && jumpArmed && controller.A.isPressed()
     if (!cinematicDone) return
     if (titleOpen) {
         if (titleReady()) startTraining()
@@ -226,8 +263,13 @@ controller.B.onEvent(ControllerButtonEvent.Pressed, function () {
     else if (menuOpen) menuAction()
 })
 controller.B.onEvent(ControllerButtonEvent.Released, function () {
-    if (cinematicDone && !titleOpen && !menuOpen && !bHandled && !inputLocked &&
-        (!trainingActive || trainingStep == 5)) {
+    // While jumping, B places the block under the feet as soon as the player is high enough.
+    let rolled = bRolled
+    bRolled = false
+    if (cinematicDone && !titleOpen && !menuOpen && (!bHandled || rolled) && !inputLocked && jumping &&
+        (!trainingActive || trainingStep == TUTORIAL_JUMP)) buildPending = true
+    else if (cinematicDone && !titleOpen && !menuOpen && !bHandled && !inputLocked &&
+        (!trainingActive || trainingStep == 5 || trainingStep == TUTORIAL_JUMP)) {
         updateTarget()
         if (!targetValid) notifyPlayer("Target out of reach")
         else if (placeBlock(placeX, placeY, placeZ)) {
@@ -282,19 +324,20 @@ function tickGame() {
         return
     }
     if (titleOpen || menuOpen) return
-    if (trainingActive && (trainingStep == 0 || trainingStep == 8)) {
+    if (trainingActive && (trainingStep == 0 || trainingStep == TUTORIAL_END)) {
         tickTraining(dt, 0, 0)
         return
     }
+    if (controller.A.isPressed()) aHeldMs += dt
     let forward = (controller.up.isPressed() ? 1 : 0) - (controller.down.isPressed() ? 1 : 0)
     let turn = (controller.right.isPressed() ? 1 : 0) - (controller.left.isPressed() ? 1 : 0)
     let looking = 0
-    if (trainingActive && trainingStep != 1 && trainingStep != 3) forward = 0
-    if (trainingActive && trainingStep != 2 && trainingStep != 6) turn = 0
+    if (trainingActive && trainingStep != 1 && trainingStep != 3 && trainingStep != TUTORIAL_JUMP) forward = 0
+    if (trainingActive && trainingStep != 2 && trainingStep != 6 && trainingStep != TUTORIAL_JUMP) turn = 0
     if (controller.B.isPressed()) {
         if (controller.up.isPressed() || controller.down.isPressed() || controller.left.isPressed() ||
             controller.right.isPressed() || controller.A.isPressed()) bHandled = true
-        if (forward != 0 && (!trainingActive || trainingStep == 3)) {
+        if (forward != 0 && (!trainingActive || trainingStep == 3 || trainingStep == TUTORIAL_JUMP)) {
             looking = forward
             pitch = Math.max(-1.2, Math.min(1.2, pitch + forward * dt * 0.0017))
             unsavedChanges = true
@@ -314,9 +357,24 @@ function tickGame() {
         walkPhase += dt * 0.014
     }
     if (posX != beforeX || posY != beforeY || posZ != beforeZ || turn != 0) unsavedChanges = true
+    if (onGround && now - jumpWishMs <= JUMP_EARLY_MS) {
+        jumpWishMs = -1000
+        jump()
+    }
+    if (buildPending) {
+        if (!jumping) buildPending = false
+        else if (posY >= (jumpFloor + 1) * UNIT) {
+            buildPending = false
+            if (buildUnderFeet()) {
+                feedback(1)
+                lastSwingMs = now
+                invalidateScene()
+            } else notifyPlayer("No space / material")
+        }
+    }
     updateTarget()
     if (!inputLocked && controller.A.isPressed() && !controller.B.isPressed() && targetValid &&
-        (!trainingActive || trainingStep == 4)) {
+        (!trainingActive || trainingStep == 4 || trainingStep == TUTORIAL_JUMP)) {
         if (mineX != targetX || mineY != targetY || mineZ != targetZ) mineMs = 0
         mineX = targetX
         mineY = targetY
@@ -325,6 +383,7 @@ function tickGame() {
         let miningDurationMs = targetBlock == Block.Stone || targetBlock == Block.Crystal
             ? (hasPickaxe ? 220 : 600) : 300
         if (mineMs >= miningDurationMs) {
+            minedThisPress = true
             let minedBlock = targetBlock
             if (mineBlock(targetX, targetY, targetZ)) {
                 lastSwingMs = now
@@ -341,6 +400,20 @@ function tickGame() {
         }
     } else mineMs = 0
     tickTraining(dt, turn, looking)
+    // Twice a second: is the player in a hole? Only checked while standing, not in training.
+    if (!trainingActive && now >= nextStuckCheckMs && onGround) {
+        nextStuckCheckMs = now + 500
+        if (roomAround() < HOLE_LIMIT) {
+            if (stuckSinceMs < 0) stuckSinceMs = now
+        } else {
+            stuckSinceMs = -1
+            hintUntilMs = 0
+        }
+    }
+    if (stuckSinceMs >= 0 && now - stuckSinceMs >= HINT_AFTER_MS && now >= nextHintMs) {
+        hintUntilMs = now + HINT_SHOW_MS
+        nextHintMs = now + HINT_REPEAT_MS
+    }
     if (!trainingActive && now - lastAutoSaveMs >= 60000) {
         lastAutoSaveMs = now
         if (unsavedChanges) saveGame()
@@ -461,6 +534,16 @@ function drawHud(canvas: Image) {
     if (messageUntilMs > game.runtime() && !menuOpen && !trainingActive) {
         canvas.fillRect(0, 82, 160, 10, 15)
         canvas.print(message, 2, 83, 5, image.font8)
+    }
+    if (hintUntilMs > game.runtime() && !menuOpen && !trainingActive) {
+        // Hint in a hole: with material, build up; without material, mine a block first.
+        let stock = hasMaterial()
+        canvas.fillRect(0, 10, 160, 20, 15)
+        canvas.drawLine(0, 29, 159, 29, 6)
+        canvas.print(stock ? "Tap A: you jump." : "No block? Hold A.",
+            2, 11, 5, image.font8)
+        canvas.print(stock ? "Then B: block under you." : "Then tap A, then B.",
+            2, 20, 1, image.font8)
     }
 }
 function drawMenu(canvas: Image) {

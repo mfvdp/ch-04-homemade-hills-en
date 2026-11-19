@@ -13,6 +13,8 @@ the picture on the workbench wall.
 - **D-pad left and right:** turn
 - **Hold B and press up or down:** look up or down
 - **Hold A:** mine the block in the crosshair
+- **Tap A:** jump
+- **Tap B while jumping:** put a block under your feet, this gets you out of any hole
 - **Tap B:** put down a block from your bag
 - **Hold B and press left or right:** choose another material
 - **MENU:** workbench with crafting, save game, return to spawn and more (B picks a row, A closes it)

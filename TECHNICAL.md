@@ -16,7 +16,7 @@ The files of the game:
 - `renderer.ts`: Drawing the world in 3D.
 - `cinematic.ts`: The intro: a journey of 22 seconds through a small 3D scene.
 - `audio.ts`: The sounds of the game.
-- `training.ts`: The training: seven short tasks on a separate place to practice.
+- `training.ts`: The training: eight short tasks on a separate place to practice.
 - `hacker.ts`: The pictures of the Calliope Hacker, painted in the colors of this game's palette.
 - `main.ts`: Start of the game, controls, workbench menu and drawing of the screen.
 
